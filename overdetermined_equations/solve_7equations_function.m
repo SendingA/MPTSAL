@@ -1,0 +1,170 @@
+function [x_opt, y_opt, beta_opt, a_opt, b_opt, p_opt, q_opt, res_history] = solve_7equations_function(x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2)
+    % 初始化参数
+    learning_rate = 0.01;
+    max_iterations = 10000;
+    tolerance = 1e-6;
+    
+    % 初始猜测（可以根据先验知识调整）
+    x = 0;
+    y = 0;
+    beta = 0;
+    a = 0;  % 第一个反射面斜率
+    b = 0;  % 第一个反射面截距
+    p = 0;  % 第二个反射面斜率
+    q = 0;  % 第二个反射面截距
+    %这里用梯度下降算法感觉有些不太实际，因为这里的参数数量太多了，容易陷入某些不正确的方案中
+    %还是得网格搜索可能，要实际一些
+    % 存储残差历史
+    res_history = zeros(max_iterations, 1);
+    
+    for iter = 1:max_iterations
+        % 计算当前残差和梯度
+        [res, grad] = compute_residuals_and_gradient(x, y, beta, a, b, p, q, x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2);
+        
+        res_history(iter) = res;
+        
+        % 检查收敛
+        if res < tolerance
+            fprintf('在迭代 %d 收敛，残差: %.6f\n', iter, res);
+            break;
+        end
+        
+        % 更新参数
+        x = x - learning_rate * grad(1);
+        y = y - learning_rate * grad(2);
+        beta = beta - learning_rate * grad(3);
+        a = a - learning_rate * grad(4);
+        b = b - learning_rate * grad(5);
+        p = p - learning_rate * grad(6);
+        q = q - learning_rate * grad(7);
+        
+        % 动态调整学习率
+        if iter > 1 && res_history(iter) > res_history(iter-1)
+            learning_rate = learning_rate * 0.9; % 如果残差增加，减小学习率
+        end %当残差小的时候,慢慢减小进度
+        
+        % 每100次迭代显示进度
+        if mod(iter, 100) == 0
+            fprintf('迭代 %d, 残差: %.6f\n', iter, res);
+        end
+    end
+    
+    % 返回最优解
+    x_opt = x;
+    y_opt = y;
+    beta_opt = beta;
+    a_opt = a;
+    b_opt = b;
+    p_opt = p;
+    q_opt = q;
+    
+    % 截断残差历史
+    res_history = res_history(1:iter);
+end
+
+function [res, grad] = compute_residuals_and_gradient(x, y, beta, a, b, p, q, x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2)
+    % 计算有限差分梯度
+    epsilon = 1e-6;
+    params = [x, y, beta, a, b, p, q];
+    grad = zeros(7, 1);
+    
+    % 计算当前残差
+    res = compute_residuals(params, x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2);
+    
+    % 计算每个参数的梯度（使用中心差分）
+    for i = 1:7
+        params_plus = params;
+        params_plus(i) = params_plus(i) + epsilon;
+        res_plus = compute_residuals(params_plus, x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2);
+        
+        params_minus = params;
+        params_minus(i) = params_minus(i) - epsilon;
+        res_minus = compute_residuals(params_minus, x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2);
+        
+        grad(i) = (res_plus - res_minus) / (2 * epsilon);
+    end
+end
+
+function res = compute_residuals(params, x0, y0, alpha, phi1, phi2, phi3, D1, D2, K1, K2)
+    % 解包参数
+    x = params(1);
+    y = params(2);
+    beta = params(3);
+    a = params(4);
+    b = params(5);
+    p = params(6);
+    q = params(7);
+    
+    % 计算方程1的残差：直接路径到达角
+    if abs(x - x0) > 1e-10
+        err1 = (y - y0) / (x - x0) - tan(alpha + phi1);
+    else
+        err1 = 0;
+    end
+    
+    % 计算第一个反射点S1
+    k1 = (y0 - a*x0 - b) / (1 + a^2);
+    x_m1 = x0 + 2*a*k1;
+    y_m1 = y0 - 2*k1;
+    
+    denominator = (y_m1 - y) - a*(x_m1 - x);
+    if abs(denominator) < 1e-10
+        res = inf;
+        return;
+    end
+    t = (a*x + b - y) / denominator;
+    x_s1 = x + t*(x_m1 - x);
+    y_s1 = y + t*(y_m1 - y);
+    
+    % 计算方程2的残差：第一个反射路径到达角
+    if abs(x0 - x_s1) > 1e-10
+        err2 = (y0 - y_s1) / (x0 - x_s1) - tan(alpha + phi2);
+    else
+        err2 = 0;
+    end
+    
+    % 计算方程3的残差：第一个反射路径长度差
+    direct_path = sqrt((x0 - x)^2 + (y0 - y)^2);
+    reflect_path1 = sqrt((x_s1 - x)^2 + (y_s1 - y)^2) + sqrt((x0 - x_s1)^2 + (y0 - y_s1)^2);
+    err3 = reflect_path1 - direct_path - K1;
+    
+    % 计算方程4的残差：第一个反射路径发射端离开角正弦差
+    A_angle = atan2(y0 - y, x0 - x);
+    B_angle = atan2(y_s1 - y, x_s1 - x);
+    err4 = sin(A_angle - beta) - sin(B_angle - beta) - D1;
+    
+    % 计算第二个反射点S2
+    k2 = (y0 - p*x0 - q) / (1 + p^2);
+    x_m2 = x0 + 2*p*k2;
+    y_m2 = y0 - 2*k2;
+    
+    denominator2 = (y_m2 - y) - p*(x_m2 - x);
+    if abs(denominator2) < 1e-10
+        res = inf;
+        return;
+    end
+    s = (p*x + q - y) / denominator2;
+    x_s2 = x + s*(x_m2 - x);
+    y_s2 = y + s*(y_m2 - y);
+    
+    % 计算方程5的残差：第二个反射路径到达角
+    if abs(x0 - x_s2) > 1e-10
+        err5 = (y0 - y_s2) / (x0 - x_s2) - tan(alpha + phi3);
+    else
+        err5 = 0;
+    end
+    
+    % 计算方程6的残差：第二个反射路径长度差
+    reflect_path2 = sqrt((x_s2 - x)^2 + (y_s2 - y)^2) + sqrt((x0 - x_s2)^2 + (y0 - y_s2)^2);
+    err6 = reflect_path2 - direct_path - K2;
+    
+    % 计算方程7的残差：第二个反射路径发射端离开角正弦差
+    C_angle = atan2(y_s2 - y, x_s2 - x);
+    err7 = sin(A_angle - beta) - sin(C_angle - beta) - D2;
+    
+    % 计算总残差（加权平方和）
+    weights = [1, 1, 1, 1, 1, 1, 1];
+    res = weights(1)*err1^2 + weights(2)*err2^2 + weights(3)*err3^2 + ...
+          weights(4)*err4^2 + weights(5)*err5^2 + weights(6)*err6^2 + ...
+          weights(7)*err7^2;
+end
