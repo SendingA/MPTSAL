@@ -34,7 +34,7 @@ uint8_t rx_buffer[FRAME_LENGTH];
 uint8_t rx_seq_num_1;
 uint8_t rx_seq_num_2;
 uint8_t rcv_pct_num = 0;
-
+uint64_t tsA, tsB;
 
 
 /* Example application name */
@@ -112,6 +112,8 @@ static void print_cir(uint8_t *buf, int n_samples, dwt_cir_read_mode_e mode) {
     }
     test_run_info((unsigned char *)"\n_________________________________\r\n");
 }
+
+
 
 /**
  * Application entry point.
@@ -191,6 +193,9 @@ int simple_rx_cir(void)
             //frame_len = dwt_getframelength(&ranging); /* Also can check if the ranging bit was set */
             //sprintf(str_to_print,"Frame Received len %d\r\n", frame_len);
             //test_run_info((unsigned char *)str_to_print);
+            tsA = get_rx_timestamp_u64();
+            sprintf(str_to_print, "RX Timestamp:\r\n", (unsigned long long)tsA);  
+            test_run_info((unsigned char *)str_to_print);
             ci = dwt_readcarrierintegrator() ; // Read carrier integrator value 
             // at 6.81Mb/s data rate convert carrier integrator to clock offset in Hz. 
             clockOffsetHertz = ci * FREQ_OFFSET_MULTIPLIER; 
@@ -275,7 +280,9 @@ int simple_rx_cir(void)
         waitforsysstatus(&status_reg, NULL, (DWT_INT_RXFCG_BIT_MASK | SYS_STATUS_ALL_RX_ERR), 0);
 
         if (status_reg & DWT_INT_RXFCG_BIT_MASK){
-
+            tsB = get_rx_timestamp_u64();
+            sprintf(str_to_print, "RX Timestamp:\r\n", (unsigned long long)tsB);  
+            test_run_info((unsigned char *)str_to_print);
             ci = dwt_readcarrierintegrator() ; // Read carrier integrator value 
             // at 6.81Mb/s data rate convert carrier integrator to clock offset in Hz. 
             clockOffsetHertz = ci * FREQ_OFFSET_MULTIPLIER; 
